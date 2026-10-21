@@ -1,7 +1,5 @@
 """Notes MCP server — tools for list / search / read / write / append / delete."""
 
-from __future__ import annotations
-
 import logging
 from pathlib import Path
 
