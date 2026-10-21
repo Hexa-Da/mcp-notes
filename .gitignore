@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+dist/
+build/
+.DS_Store
+uv.lock
+
+### Docs Perso ###
+.cursor/rules/
+memoire
+tasks

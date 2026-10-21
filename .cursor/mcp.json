@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "notes": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "${workspaceFolder}/src/notes_mcp/server.py"
+      ],
+      "env": {
+        "NOTES_ROOT": "${userHome}/Documents/notes"
+      }
+    }
+  }
+}
