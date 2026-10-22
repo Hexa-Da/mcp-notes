@@ -23,5 +23,5 @@ L’agent Cursor passe par ce MCP pour lister / chercher / lire / écrire des no
 | `write_note` | Crée / écrase |
 | `append_note` | Ajoute à la fin |
 | `delete_note` | Supprime |
-| `move_note` | Déplace / renomme (jamais d’écrasement ; parent via `mkdir`) |
+| `move_note` | Déplace / renomme |
 | `mkdir` | Crée un dossier |

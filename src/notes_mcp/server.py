@@ -1,8 +1,7 @@
-"""Notes MCP server — tools for list / search / read / write / append / delete / move / mkdir."""
+"""Notes MCP server — tools for list / search / read / write / append / delete / move."""
 
 import logging
 import os
-from pathlib import Path
 
 from mcp.server import MCPServer
 
@@ -12,31 +11,42 @@ log = logging.getLogger("notes-mcp")
 mcp = MCPServer("notes", version="0.1.0")
 
 
-def _notes_root() -> Path:
+def _notes_root() -> str:
     raw = os.environ.get("NOTES_ROOT", "").strip()
     if not raw:
         raise ValueError(
             "NOTES_ROOT is not set. Set it in mcp.json."
         )
-    root = Path(raw).expanduser().resolve()
-    if not root.is_dir():
+    home = os.path.expanduser(raw)
+    root = os.path.realpath(home)
+    if not os.path.isdir(root):
         raise ValueError(f"NOTES_ROOT is not a directory: {root}")
     return root
 
 
-def _note_path(root: Path, relative: str) -> Path:
+def _note_path(root: str, relative: str) -> str:
     """Join relative path under NOTES_ROOT."""
     rel = relative.strip()
     if not rel:
         raise ValueError("path must be non-empty")
-    return root / rel
+    return os.path.join(root, rel)
 
 
-def _iter_markdown_files(root: Path) -> list[tuple[Path, str]]:
-    out: list[tuple[Path, str]] = []
-    for path in sorted(root.rglob("*.md")):
-        if path.is_file():
-            out.append((path, path.relative_to(root).as_posix()))
+def _rel_posix(path: str, root: str) -> str:
+    rel = os.path.relpath(path, root)
+    return rel.replace(os.sep, "/") or "."
+
+
+def _iter_markdown_files(root: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            if not name.endswith(".md"):
+                continue
+            full = os.path.join(dirpath, name)
+            if os.path.isfile(full):
+                out.append((full, _rel_posix(full, root)))
+    out.sort(key=lambda item: item[1])
     return out
 
 
@@ -50,12 +60,15 @@ def list_notes(subdir: str = "") -> str:
     try:
         root = _notes_root()
         items = _iter_markdown_files(root)
-        if subdir.strip():
-            prefix = Path(subdir.strip()).as_posix().rstrip("/") + "/"
+        sub = subdir.strip()
+        if sub:
+            normalized = sub.replace(os.sep, "/")
+            without_slash = normalized.rstrip("/")
+            prefix = without_slash + "/"
             items = [
                 (p, rel)
                 for p, rel in items
-                if rel.startswith(prefix) or rel == subdir.strip()
+                if rel.startswith(prefix) or rel == sub
             ]
         if not items:
             return f"No .md notes found under: {root}"
@@ -77,7 +90,8 @@ def search_notes(query: str, max_hits: int = 20) -> str:
         hits: list[str] = []
         for path, rel in _iter_markdown_files(root):
             try:
-                text = path.read_text(encoding="utf-8")
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
             except OSError:
                 continue
             lower = text.lower()
@@ -104,7 +118,8 @@ def read_note(path: str) -> str:
     try:
         root = _notes_root()
         note = _note_path(root, path)
-        return note.read_text(encoding="utf-8")
+        with open(note, encoding="utf-8") as f:
+            return f.read()
     except Exception as exc:
         return _err(exc)
 
@@ -115,8 +130,11 @@ def write_note(path: str, content: str) -> str:
     try:
         root = _notes_root()
         note = _note_path(root, path)
-        note.parent.mkdir(parents=True, exist_ok=True)
-        note.write_text(content, encoding="utf-8")
+        parent = os.path.dirname(note)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(note, "w", encoding="utf-8") as f:
+            f.write(content)
         return f"Wrote {len(content)} chars to {path.strip()}"
     except Exception as exc:
         return _err(exc)
@@ -128,8 +146,10 @@ def append_note(path: str, content: str) -> str:
     try:
         root = _notes_root()
         note = _note_path(root, path)
-        note.parent.mkdir(parents=True, exist_ok=True)
-        with note.open("a", encoding="utf-8") as f:
+        parent = os.path.dirname(note)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(note, "a", encoding="utf-8") as f:
             f.write(content)
         return f"Appended {len(content)} chars to {path.strip()}"
     except Exception as exc:
@@ -142,47 +162,32 @@ def delete_note(path: str) -> str:
     try:
         root = _notes_root()
         note = _note_path(root, path)
-        note.unlink()
+        os.remove(note)
         return f"Deleted {path.strip()}"
     except Exception as exc:
         return _err(exc)
 
+
 @mcp.tool()
 def move_note(from_path: str, to_path: str) -> str:
-    """Move/rename a note. Parent dir must exist (or use mkdir). Never overwrites — pick another to_path if dest exists."""
+    """Move/rename a note. Creates parent dirs if needed. Never overwrites — pick another to_path if dest exists."""
     try:
         root = _notes_root()
         src_rel = from_path.strip()
         dst_rel = to_path.strip()
         src = _note_path(root, src_rel)
         dst = _note_path(root, dst_rel)
-        if not src.is_file():
+        if not os.path.isfile(src):
             raise ValueError(f"source not found: {src_rel}")
-        if src.resolve() == dst.resolve():
+        if os.path.realpath(src) == os.path.realpath(dst):
             return f"Already at {src_rel}"
-        parent = dst.parent
-        if not parent.is_dir():
-            parent_rel = parent.relative_to(root).as_posix() or "."
-            raise ValueError(f"destination parent missing: {parent_rel} (use mkdir)")
-        if dst.exists():
+        if os.path.exists(dst):
             raise ValueError(f"destination already exists: {dst_rel} (choose another name)")
-        src.rename(dst)
+        parent = os.path.dirname(dst)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        os.rename(src, dst)
         return f"Moved {src_rel} → {dst_rel}"
-    except Exception as exc:
-        return _err(exc)
-
-
-@mcp.tool()
-def mkdir(path: str) -> str:
-    """Create a directory under NOTES_ROOT (relative path). Creates parents. Idempotent."""
-    try:
-        root = _notes_root()
-        rel = path.strip()
-        target = _note_path(root, rel)
-        if target.is_dir():
-            return f"Already exists: {rel}"
-        target.mkdir(parents=True, exist_ok=True)
-        return f"Created {rel}"
     except Exception as exc:
         return _err(exc)
 
