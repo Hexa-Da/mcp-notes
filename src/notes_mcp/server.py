@@ -1,4 +1,4 @@
-"""Notes MCP server — tools for list / search / read / write / append / delete."""
+"""Notes MCP server — tools for list / search / read / write / append / delete / move / mkdir."""
 
 import logging
 import os
@@ -144,6 +144,45 @@ def delete_note(path: str) -> str:
         note = _note_path(root, path)
         note.unlink()
         return f"Deleted {path.strip()}"
+    except Exception as exc:
+        return _err(exc)
+
+@mcp.tool()
+def move_note(from_path: str, to_path: str) -> str:
+    """Move/rename a note. Parent dir must exist (or use mkdir). Never overwrites — pick another to_path if dest exists."""
+    try:
+        root = _notes_root()
+        src_rel = from_path.strip()
+        dst_rel = to_path.strip()
+        src = _note_path(root, src_rel)
+        dst = _note_path(root, dst_rel)
+        if not src.is_file():
+            raise ValueError(f"source not found: {src_rel}")
+        if src.resolve() == dst.resolve():
+            return f"Already at {src_rel}"
+        parent = dst.parent
+        if not parent.is_dir():
+            parent_rel = parent.relative_to(root).as_posix() or "."
+            raise ValueError(f"destination parent missing: {parent_rel} (use mkdir)")
+        if dst.exists():
+            raise ValueError(f"destination already exists: {dst_rel} (choose another name)")
+        src.rename(dst)
+        return f"Moved {src_rel} → {dst_rel}"
+    except Exception as exc:
+        return _err(exc)
+
+
+@mcp.tool()
+def mkdir(path: str) -> str:
+    """Create a directory under NOTES_ROOT (relative path). Creates parents. Idempotent."""
+    try:
+        root = _notes_root()
+        rel = path.strip()
+        target = _note_path(root, rel)
+        if target.is_dir():
+            return f"Already exists: {rel}"
+        target.mkdir(parents=True, exist_ok=True)
+        return f"Created {rel}"
     except Exception as exc:
         return _err(exc)
 

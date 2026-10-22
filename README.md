@@ -17,9 +17,11 @@ L’agent Cursor passe par ce MCP pour lister / chercher / lire / écrire des no
 
 | Tool | Rôle |
 |---|---|
-| `list_notes` | Liste les `.md` (sous-dossier optionnel) |
+| `list_notes` | Liste les `.md` |
 | `search_notes` | Recherche dans le contenu |
 | `read_note` | Lit un chemin relatif |
 | `write_note` | Crée / écrase |
 | `append_note` | Ajoute à la fin |
 | `delete_note` | Supprime |
+| `move_note` | Déplace / renomme (jamais d’écrasement ; parent via `mkdir`) |
+| `mkdir` | Crée un dossier |
