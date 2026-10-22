@@ -1,11 +1,10 @@
 """Notes MCP server — tools for list / search / read / write / append / delete."""
 
 import logging
+import os
 from pathlib import Path
 
 from mcp.server import MCPServer
-
-from notes_mcp.sandbox import SandboxError, get_roots, iter_markdown_files, resolve_note_path
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("notes-mcp")
@@ -17,6 +16,36 @@ MAX_SEARCH_HITS = 50
 MAX_SEARCH_SNIPPET = 200
 
 
+def _notes_root() -> Path:
+    raw = os.environ.get("NOTES_ROOT", "").strip()
+    if not raw:
+        raise ValueError(
+            "NOTES_ROOT is not set. Export it to your notes directory, e.g. "
+            "export NOTES_ROOT=/Users/you/Documents/notes"
+        )
+    root = Path(raw).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"NOTES_ROOT is not a directory: {root}")
+    return root
+
+
+def _note_path(relative: str) -> Path:
+    """Join relative path under NOTES_ROOT (no sandbox checks — draft only)."""
+    rel = relative.strip()
+    if not rel:
+        raise ValueError("path must be non-empty")
+    return _notes_root() / rel
+
+
+def _iter_markdown_files() -> list[tuple[Path, str]]:
+    root = _notes_root()
+    out: list[tuple[Path, str]] = []
+    for path in sorted(root.rglob("*.md")):
+        if path.is_file():
+            out.append((path, path.relative_to(root).as_posix()))
+    return out
+
+
 def _err(exc: Exception) -> str:
     return f"Error: {exc}"
 
@@ -25,16 +54,17 @@ def _err(exc: Exception) -> str:
 def list_notes(subdir: str = "") -> str:
     """List markdown notes under NOTES_ROOT (optional relative subdir)."""
     try:
-        roots = get_roots()
-        items = iter_markdown_files()
+        root = _notes_root()
+        items = _iter_markdown_files()
         if subdir.strip():
             prefix = Path(subdir.strip()).as_posix().rstrip("/") + "/"
-            if ".." in Path(subdir).parts:
-                raise SandboxError("subdir must not contain '..'")
-            items = [(p, rel) for p, rel in items if rel.startswith(prefix) or rel == subdir.strip()]
+            items = [
+                (p, rel)
+                for p, rel in items
+                if rel.startswith(prefix) or rel == subdir.strip()
+            ]
         if not items:
-            roots_s = ", ".join(str(r) for r in roots)
-            return f"No .md notes found under: {roots_s}"
+            return f"No .md notes found under: {root}"
         lines = [f"- {rel}" for _, rel in items]
         return f"{len(lines)} note(s):\n" + "\n".join(lines)
     except Exception as exc:
@@ -47,10 +77,10 @@ def search_notes(query: str, max_hits: int = 20) -> str:
     try:
         q = query.strip()
         if not q:
-            raise SandboxError("query must be non-empty")
+            raise ValueError("query must be non-empty")
         limit = max(1, min(max_hits, MAX_SEARCH_HITS))
         hits: list[str] = []
-        for path, rel in iter_markdown_files():
+        for path, rel in _iter_markdown_files():
             try:
                 text = path.read_text(encoding="utf-8")
             except OSError:
@@ -76,7 +106,7 @@ def search_notes(query: str, max_hits: int = 20) -> str:
 def read_note(path: str) -> str:
     """Read a markdown note by relative path (e.g. inbox/ideas.md)."""
     try:
-        note = resolve_note_path(path, must_exist=True)
+        note = _note_path(path)
         text = note.read_text(encoding="utf-8")
         if len(text) > MAX_READ_CHARS:
             return text[:MAX_READ_CHARS] + f"\n\n…[truncated at {MAX_READ_CHARS} chars]"
@@ -89,13 +119,10 @@ def read_note(path: str) -> str:
 def write_note(path: str, content: str) -> str:
     """Create or overwrite a markdown note (relative path). Creates parent dirs if needed."""
     try:
-        note = resolve_note_path(path, must_exist=False)
+        note = _note_path(path)
         note.parent.mkdir(parents=True, exist_ok=True)
-        # Re-check after mkdir (parents must stay inside root)
-        note = resolve_note_path(path, must_exist=False)
         note.write_text(content, encoding="utf-8")
-        rel = path.strip()
-        return f"Wrote {len(content)} chars to {rel}"
+        return f"Wrote {len(content)} chars to {path.strip()}"
     except Exception as exc:
         return _err(exc)
 
@@ -104,9 +131,8 @@ def write_note(path: str, content: str) -> str:
 def append_note(path: str, content: str) -> str:
     """Append text to an existing note, or create it if missing."""
     try:
-        note = resolve_note_path(path, must_exist=False)
+        note = _note_path(path)
         note.parent.mkdir(parents=True, exist_ok=True)
-        note = resolve_note_path(path, must_exist=False)
         with note.open("a", encoding="utf-8") as f:
             f.write(content)
         return f"Appended {len(content)} chars to {path.strip()}"
@@ -118,7 +144,7 @@ def append_note(path: str, content: str) -> str:
 def delete_note(path: str) -> str:
     """Delete a markdown note by relative path. Irreversible."""
     try:
-        note = resolve_note_path(path, must_exist=True)
+        note = _note_path(path)
         note.unlink()
         return f"Deleted {path.strip()}"
     except Exception as exc:
@@ -126,11 +152,10 @@ def delete_note(path: str) -> str:
 
 
 def main() -> None:
-    # Log roots on stderr only (stdout is the MCP wire).
+    # Log root on stderr only (stdout is the MCP wire).
     try:
-        roots = get_roots()
-        log.info("notes MCP allowlist: %s", ", ".join(str(r) for r in roots))
-    except SandboxError as exc:
+        log.info("notes MCP root: %s", _notes_root())
+    except ValueError as exc:
         log.error("%s", exc)
     mcp.run()
 

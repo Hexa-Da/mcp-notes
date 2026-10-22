@@ -1,17 +1,17 @@
 # mcp-notes
 
-Serveur MCP **notes** : accès contrôlé à un dossier de fichiers Markdown, utilisable par un **agent Cursor**.
+Serveur MCP **notes** : accès à un dossier de fichiers Markdown via un **agent Cursor**.
 
 ## Idée
 
-L’agent Cursor ne lit pas le disque librement. Il passe par ce MCP, qui n’autorise que des `.md` sous `NOTES_ROOT`.
+L’agent Cursor passe par ce MCP pour lister / chercher / lire / écrire des notes sous `NOTES_ROOT`.
 
 1. Cursor lit [`.cursor/mcp.json`](.cursor/mcp.json) (`type: stdio`)
 2. Il lance directement `.venv/bin/python` + `src/notes_mcp/server.py`
 3. Le serveur Python **reste allumé** et attend
 4. L’agent appelle un tool (`read_note`, etc.)
 5. Cursor envoie la demande sur **stdin** du process ; le serveur répond sur **stdout**
-6. Le serveur lit / écrit uniquement des `.md` sous `NOTES_ROOT` (allowlist)
+6. Le serveur joint `NOTES_ROOT` + le chemin relatif fourni
 
 ## Outils exposés
 
