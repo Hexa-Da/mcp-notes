@@ -11,10 +11,6 @@ log = logging.getLogger("notes-mcp")
 
 mcp = MCPServer("notes", version="0.1.0")
 
-MAX_READ_CHARS = 200_000
-MAX_SEARCH_HITS = 50
-MAX_SEARCH_SNIPPET = 200
-
 
 def _notes_root() -> Path:
     raw = os.environ.get("NOTES_ROOT", "").strip()
@@ -77,7 +73,7 @@ def search_notes(query: str, max_hits: int = 20) -> str:
         q = query.strip()
         if not q:
             raise ValueError("query must be non-empty")
-        limit = max(1, min(max_hits, MAX_SEARCH_HITS))
+        limit = max(1, max_hits)
         hits: list[str] = []
         for path, rel in _iter_markdown_files(root):
             try:
@@ -89,7 +85,8 @@ def search_notes(query: str, max_hits: int = 20) -> str:
             if idx < 0:
                 continue
             start = max(0, idx - 40)
-            end = min(len(text), idx + len(q) + MAX_SEARCH_SNIPPET)
+            nl = text.find("\n", idx)
+            end = nl if nl != -1 else len(text)
             snippet = text[start:end].replace("\n", " ").strip()
             hits.append(f"- {rel}: …{snippet}…")
             if len(hits) >= limit:
@@ -107,10 +104,7 @@ def read_note(path: str) -> str:
     try:
         root = _notes_root()
         note = _note_path(root, path)
-        text = note.read_text(encoding="utf-8")
-        if len(text) > MAX_READ_CHARS:
-            return text[:MAX_READ_CHARS] + f"\n\n…[truncated at {MAX_READ_CHARS} chars]"
-        return text
+        return note.read_text(encoding="utf-8")
     except Exception as exc:
         return _err(exc)
 
