@@ -20,8 +20,7 @@ def _notes_root() -> Path:
     raw = os.environ.get("NOTES_ROOT", "").strip()
     if not raw:
         raise ValueError(
-            "NOTES_ROOT is not set. Export it to your notes directory, e.g. "
-            "export NOTES_ROOT=/Users/you/Documents/notes"
+            "NOTES_ROOT is not set. Set it in mcp.json."
         )
     root = Path(raw).expanduser().resolve()
     if not root.is_dir():
@@ -29,16 +28,15 @@ def _notes_root() -> Path:
     return root
 
 
-def _note_path(relative: str) -> Path:
-    """Join relative path under NOTES_ROOT (no sandbox checks — draft only)."""
+def _note_path(root: Path, relative: str) -> Path:
+    """Join relative path under NOTES_ROOT."""
     rel = relative.strip()
     if not rel:
         raise ValueError("path must be non-empty")
-    return _notes_root() / rel
+    return root / rel
 
 
-def _iter_markdown_files() -> list[tuple[Path, str]]:
-    root = _notes_root()
+def _iter_markdown_files(root: Path) -> list[tuple[Path, str]]:
     out: list[tuple[Path, str]] = []
     for path in sorted(root.rglob("*.md")):
         if path.is_file():
@@ -55,7 +53,7 @@ def list_notes(subdir: str = "") -> str:
     """List markdown notes under NOTES_ROOT (optional relative subdir)."""
     try:
         root = _notes_root()
-        items = _iter_markdown_files()
+        items = _iter_markdown_files(root)
         if subdir.strip():
             prefix = Path(subdir.strip()).as_posix().rstrip("/") + "/"
             items = [
@@ -75,12 +73,13 @@ def list_notes(subdir: str = "") -> str:
 def search_notes(query: str, max_hits: int = 20) -> str:
     """Search note contents (case-insensitive substring). Returns path + snippet."""
     try:
+        root = _notes_root()
         q = query.strip()
         if not q:
             raise ValueError("query must be non-empty")
         limit = max(1, min(max_hits, MAX_SEARCH_HITS))
         hits: list[str] = []
-        for path, rel in _iter_markdown_files():
+        for path, rel in _iter_markdown_files(root):
             try:
                 text = path.read_text(encoding="utf-8")
             except OSError:
@@ -106,7 +105,8 @@ def search_notes(query: str, max_hits: int = 20) -> str:
 def read_note(path: str) -> str:
     """Read a markdown note by relative path (e.g. inbox/ideas.md)."""
     try:
-        note = _note_path(path)
+        root = _notes_root()
+        note = _note_path(root, path)
         text = note.read_text(encoding="utf-8")
         if len(text) > MAX_READ_CHARS:
             return text[:MAX_READ_CHARS] + f"\n\n…[truncated at {MAX_READ_CHARS} chars]"
@@ -119,7 +119,8 @@ def read_note(path: str) -> str:
 def write_note(path: str, content: str) -> str:
     """Create or overwrite a markdown note (relative path). Creates parent dirs if needed."""
     try:
-        note = _note_path(path)
+        root = _notes_root()
+        note = _note_path(root, path)
         note.parent.mkdir(parents=True, exist_ok=True)
         note.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} chars to {path.strip()}"
@@ -131,7 +132,8 @@ def write_note(path: str, content: str) -> str:
 def append_note(path: str, content: str) -> str:
     """Append text to an existing note, or create it if missing."""
     try:
-        note = _note_path(path)
+        root = _notes_root()
+        note = _note_path(root, path)
         note.parent.mkdir(parents=True, exist_ok=True)
         with note.open("a", encoding="utf-8") as f:
             f.write(content)
@@ -144,7 +146,8 @@ def append_note(path: str, content: str) -> str:
 def delete_note(path: str) -> str:
     """Delete a markdown note by relative path. Irreversible."""
     try:
-        note = _note_path(path)
+        root = _notes_root()
+        note = _note_path(root, path)
         note.unlink()
         return f"Deleted {path.strip()}"
     except Exception as exc:
